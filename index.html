@@ -658,6 +658,28 @@ function castDomain(){
 }
 function attack(){
   if (player.attackCd>0) return;
+  // 白金之星时停：欧拉欧拉（快速高伤连打）
+  if (standAwake){
+    player.attackCd = 8;
+    let hits=0;
+    for (const e of enemies){
+      const d=Math.hypot(e.x-player.x,e.y-player.y);
+      if (d<80){
+        e.hp -= player.atk*3;
+        e.hitT=8;
+        burst(e.x,e.y,"#4fc3ff",8,2.5);
+        hits++;
+      }
+    }
+    if (bossFight && boss && Math.hypot(boss.x-player.x,boss.y-player.y)<85){
+      boss.hp -= player.atk*3;
+      boss.flash=6;
+      burst(boss.x,boss.y,"#4fc3ff",12,3);
+      hits++;
+    }
+    if (hits>0){ shake=5; hitStop=2; sfx("kill"); }
+    return;
+  }
   player.attackCd = domainActive ? 14 : 20;
   // 领域强化：左键 = 苍（自动索敌巨伤）+ 近身普攻同时生效
   if (domainActive && skillQ<=0) castSkill("1");
@@ -700,15 +722,27 @@ function hitPlayer(dmg){
   if (player.hp<=0){ player.hp=0; gameOver(); }
 }
 
+/* ===== 彩蛋：白金之星（BOSS 战顶角三次右键觉醒） ===== */
+let standAwake = false, standTime = 0, standCount = 0;
+function activateStand(){
+  standAwake = true;
+  standTime = 200;   // 时停约 3.3 秒
+  speak("スタープラチナ！時よ止まれ！");
+  showTalk("「スタープラチナ！時よ止まれ！」");
+  shake = 14;
+  for (let i=0;i<60;i++){
+    const a=Math.random()*6.28, sp=2+Math.random()*6;
+    parts.push({x:player.x,y:player.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:40,max:50,color:"#4fc3ff",big:true});
+  }
+}
+
 /* ================= 粒子 / 震动 / 顿帧 ================= */
 let parts=[];
 let shake=0, shakeX=0, shakeY=0;
 let hitStop=0;
-/* 火影奥义式半屏大招字幕 */
+/* 火影奥义式半屏大招字幕（已按需求移除） */
 let subTitle = null;   // {text, sub, t, dur}
-function bigSubtitle(text, sub){
-  subTitle = { text, sub, t: 0, dur: 130 };   // 约 2.2 秒
-}
+function bigSubtitle(text, sub){ /* 字幕已移除 */ }
 function renderSubtitle(){
   if (!subTitle) return;
   const st = subTitle;
@@ -827,6 +861,11 @@ cv.addEventListener("mousedown",e=>{
   if(e.button===2){
     if(domainActive&&skillE<=0)castSkill("2");
     else if(shieldCd<=0&&shieldTime>0)defending=true;
+  }
+  // 白金之星彩蛋：BOSS 战屏幕顶角按三次右键觉醒
+  if (e.button===2 && bossFight && e.clientY < 120){
+    standCount++;
+    if (standCount >= 3 && !standAwake){ activateStand(); standCount = 0; }
   }
 });
 addEventListener("mouseup",e=>{ if(e.button===2)defending=false; });
@@ -947,6 +986,7 @@ function startGame(){
   boss=null; bossMap=false; bossFight=false; bossStarted=false; victory=false;
   cgActive=false; cgT=0; damageZones=[];
   talk=null; talk3=false; talk6=false;
+  standAwake=false; standTime=0; standCount=0;
   const [sx,sy]=findSpawn();
   player.x=sx;player.y=sy;player.vx=0;player.vy=0;
   player.hp=120;player.maxHp=120;player.atk=12;player.spd=2.8;
@@ -1046,8 +1086,9 @@ function update(dt){
     }
   }
 
-  // 怪物
+  // 怪物（时停冻结）
   for(const e of enemies){
+    if (standAwake) continue;   // 时停：怪物定身
     if(e.hitT>0)e.hitT-=dt*60;
     const dx=player.x-e.x,dy=player.y-e.y;
     const dist=Math.hypot(dx,dy);
@@ -1092,8 +1133,8 @@ function update(dt){
     }
     if(e.hp<=0)killEnemy(e);
   }
-  // 弹丸
-  for(let i=projectiles.length-1;i>=0;i--){
+  // 弹丸（时停冻结）
+  if (!standAwake) for(let i=projectiles.length-1;i>=0;i--){
     const pr=projectiles[i];
     // 追踪弹
     if (pr.homing){
@@ -1331,6 +1372,18 @@ function render(t){
   const p=player;
   ctx.save();
   if(p.hitT>0)ctx.globalAlpha=0.45;
+  // 白金之星替身光晕（时停中）
+  if (standAwake){
+    ctx.fillStyle = "rgba(79,195,255,0.28)";
+    ctx.beginPath(); ctx.arc(p.x, p.y, 48, 0, 6.28); ctx.fill();
+    ctx.strokeStyle = "rgba(79,195,255,0.85)"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 48, 0, 6.28); ctx.stroke();
+    for (let i=0;i<4;i++){
+      const ba = t*6 + i*1.57;
+      ctx.fillStyle = "rgba(160,220,255,0.7)";
+      ctx.beginPath(); ctx.arc(p.x+Math.cos(ba)*34, p.y+Math.sin(ba)*34, 6, 0, 6.28); ctx.fill();
+    }
+  }
   if(defending){
     const pulse=0.55+0.25*Math.sin(t*8);
     ctx.fillStyle=`rgba(142,68,173,${0.16+0.1*pulse})`;
@@ -1407,6 +1460,14 @@ function render(t){
 
   drawHUD(t);
   renderSubtitle();
+  // 时停冻结滤镜（蓝灰 + 定格尘埃）
+  if (standAwake){
+    ctx.fillStyle = "rgba(110,175,255,0.13)"; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = "rgba(200,230,255,0.5)";
+    for (let i=0;i<16;i++){
+      ctx.fillRect((t*26+i*97)%W, (t*15+i*53)%H, 2, 2);
+    }
+  }
   renderCG();
   // 宿傩苏醒对话（底部台词框）
   if (talk){
@@ -1885,6 +1946,12 @@ function summonMinions(){
 }
 function updateBoss(dt){
   if (!bossFight || !boss) return;
+  // 白金之星时停：BOSS 完全冻结（木桩任打）
+  if (standAwake){
+    standTime -= dt*60;
+    if (standTime <= 0) standAwake = false;
+    return;
+  }
   const b = boss;
   if (b.flash>0) b.flash--;
   const ratio = b.hp/b.maxHp;
