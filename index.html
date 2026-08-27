@@ -69,6 +69,54 @@
     font-family:inherit; transition:.15s;
   }
   #cheat .ca .cb:hover{background:rgba(142,68,173,.35)}
+  /* ===== 手机触屏适配 ===== */
+  @media (max-width:1024px){
+    body{align-items:flex-start}
+    #wrap{width:100vw; height:100vh; display:flex; align-items:center; justify-content:center}
+    canvas{max-width:100vw; max-height:100vh}
+    #cheat{display:none!important}
+  }
+  #touchUI{
+    position:fixed; inset:0; z-index:8; display:none; touch-action:none; user-select:none;
+  }
+  #touchUI.show{display:block}
+  #stickZone{position:absolute; left:0; bottom:0; width:50%; height:65%}
+  #stickBase{
+    position:absolute; left:70px; bottom:70px; width:120px; height:120px; border-radius:50%;
+    background:rgba(255,255,255,.08); border:2px solid rgba(255,255,255,.25);
+  }
+  #stickDot{
+    position:absolute; left:50%; top:50%; width:50px; height:50px; margin:-25px 0 0 -25px;
+    border-radius:50%; background:rgba(124,212,255,.55); border:2px solid rgba(255,255,255,.5);
+  }
+  #btnAtk{
+    position:absolute; right:34px; bottom:120px; width:92px; height:92px; border-radius:50%;
+    background:rgba(214,40,40,.45); border:3px solid rgba(255,255,255,.6);
+    color:#fff; font-size:16px; font-weight:700; display:flex; align-items:center; justify-content:center;
+    font-family:inherit;
+  }
+  #btnDef{
+    position:absolute; right:150px; bottom:70px; width:72px; height:72px; border-radius:50%;
+    background:rgba(142,68,173,.45); border:3px solid rgba(255,255,255,.55);
+    color:#fff; font-size:14px; display:flex; align-items:center; justify-content:center; font-family:inherit;
+  }
+  #btnDef.on{background:rgba(124,212,255,.6)}
+  .btnSkill{
+    position:absolute; width:52px; height:52px; border-radius:12px;
+    background:rgba(20,16,40,.6); border:2px solid rgba(214,40,40,.6);
+    color:#fff; font-size:15px; font-weight:700; display:flex; align-items:center; justify-content:center;
+    font-family:inherit;
+  }
+  .btnSkill.lock{opacity:.35; border-color:rgba(255,255,255,.2)}
+  #btnS1{right:150px; bottom:160px}
+  #btnS2{right:95px; bottom:225px}
+  #btnS3{right:30px; bottom:245px}
+  #btnDomain{
+    position:absolute; right:30px; top:80px; width:64px; height:64px; border-radius:50%;
+    background:rgba(255,217,61,.35); border:3px solid #ffd93d;
+    color:#ffd93d; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center;
+    font-family:inherit;
+  }
 
 </style>
 </head>
@@ -116,6 +164,19 @@
       <button class="cb" data-act="clear">清屏</button>
       <button class="cb" data-act="max">满属性</button>
     </div>
+  </div>
+
+  <!-- 手机触屏控件 -->
+  <div id="touchUI">
+    <div id="stickZone">
+      <div id="stickBase"><div id="stickDot"></div></div>
+    </div>
+    <button id="btnAtk">⚔<br>攻</button>
+    <button id="btnDef">🛡</button>
+    <button class="btnSkill" id="btnS1">1</button>
+    <button class="btnSkill" id="btnS2">2</button>
+    <button class="btnSkill" id="btnS3">3</button>
+    <button id="btnDomain">领域</button>
   </div>
 </div>
 
@@ -787,6 +848,76 @@ function speak(text){
   } catch(e){}
 }
 
+/* ================= 触屏控制（手机） ================= */
+let isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+let touchMove = {x:0, y:0, active:false};
+function initTouch(){
+  const ui = document.getElementById("touchUI");
+  if (!isTouch) return;
+  ui.classList.add("show");
+  // 摇杆
+  const zone = document.getElementById("stickZone");
+  const base = document.getElementById("stickBase");
+  const dot = document.getElementById("stickDot");
+  let stickId = null;
+  const STICK_R = 60;
+  function stickMove(e){
+    const t = e.touches[0];
+    const rect = base.getBoundingClientRect();
+    const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+    let dx = t.clientX - cx, dy = t.clientY - cy;
+    const len = Math.hypot(dx, dy);
+    if (len > STICK_R){ dx = dx/len*STICK_R; dy = dy/len*STICK_R; }
+    dot.style.transform = `translate(${dx}px, ${dy}px)`;
+    touchMove.x = dx/STICK_R;
+    touchMove.y = dy/STICK_R;
+    touchMove.active = true;
+  }
+  function stickEnd(){
+    touchMove.active = false;
+    touchMove.x = 0; touchMove.y = 0;
+    dot.style.transform = "translate(0,0)";
+    stickId = null;
+  }
+  zone.addEventListener("touchstart", e=>{
+    if (stickId !== null) return;
+    stickId = e.touches[0].identifier;
+    e.preventDefault();
+    stickMove(e);
+  }, {passive:false});
+  zone.addEventListener("touchmove", e=>{
+    for (const t of e.touches) if (t.identifier === stickId){ stickMove(e); break; }
+    e.preventDefault();
+  }, {passive:false});
+  zone.addEventListener("touchend", e=>{
+    let gone = true;
+    for (const t of e.touches) if (t.identifier === stickId) gone = false;
+    if (gone) stickEnd();
+  });
+  zone.addEventListener("touchcancel", stickEnd);
+  // 攻击按钮
+  const atk = document.getElementById("btnAtk");
+  atk.addEventListener("touchstart", e=>{ e.preventDefault(); if (running && !over) attack(); }, {passive:false});
+  // 防御按钮
+  const def = document.getElementById("btnDef");
+  def.addEventListener("touchstart", e=>{ e.preventDefault(); defending = true; def.classList.add("on"); }, {passive:false});
+  def.addEventListener("touchend", e=>{ e.preventDefault(); defending = false; def.classList.remove("on"); }, {passive:false});
+  def.addEventListener("touchcancel", ()=>{ defending = false; def.classList.remove("on"); });
+  // 技能按钮
+  document.getElementById("btnS1").addEventListener("touchstart", e=>{ e.preventDefault(); castSkill("1"); }, {passive:false});
+  document.getElementById("btnS2").addEventListener("touchstart", e=>{ e.preventDefault(); castSkill("2"); }, {passive:false});
+  document.getElementById("btnS3").addEventListener("touchstart", e=>{ e.preventDefault(); castSkill("3"); }, {passive:false});
+  // 领域按钮
+  document.getElementById("btnDomain").addEventListener("touchstart", e=>{ e.preventDefault(); castDomain(); }, {passive:false});
+  // 更新技能按钮解锁状态
+  setInterval(()=>{
+    document.getElementById("btnS1").classList.toggle("lock", player.lv < 3);
+    document.getElementById("btnS2").classList.toggle("lock", player.lv < 6);
+    document.getElementById("btnS3").classList.toggle("lock", player.lv < 9);
+  }, 500);
+}
+initTouch();
+
 /* ================= 游戏状态 ================= */
 let running=false, over=false, startTime=0, finalTime=0, deathTimer=0;
 let chests=[];
@@ -836,12 +967,17 @@ document.getElementById("againBtn").addEventListener("click",startGame);
 function update(dt){
   // CG 播放期间暂停玩法
   if (cgActive){ updateCG(dt); updateParts(dt); return; }
-  // 玩家输入 → 目标速度（惯性平滑）
+  // 玩家输入 → 目标速度（惯性平滑）—— 触屏摇杆优先
   let mx=0,my=0;
-  if(keys["KeyW"])my=-1;
-  if(keys["KeyS"])my=1;
-  if(keys["KeyA"])mx=-1;
-  if(keys["KeyD"])mx=1;
+  if (touchMove.active){
+    mx = touchMove.x;
+    my = touchMove.y;
+  } else {
+    if(keys["KeyW"])my=-1;
+    if(keys["KeyS"])my=1;
+    if(keys["KeyA"])mx=-1;
+    if(keys["KeyD"])mx=1;
+  }
   const moving=(mx||my)!==0;
   if(moving){
     const len=Math.hypot(mx,my)||1;
