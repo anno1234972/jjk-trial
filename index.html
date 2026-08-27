@@ -722,8 +722,8 @@ function hitPlayer(dmg){
   if (player.hp<=0){ player.hp=0; gameOver(); }
 }
 
-/* ===== 彩蛋：白金之星（BOSS 战顶角三次右键觉醒） ===== */
-let standAwake = false, standTime = 0, standCount = 0;
+/* ===== 彩蛋：白金之星（按住 O 键 5 秒觉醒） ===== */
+let standAwake = false, standTime = 0, standCount = 0, oHold = 0;
 function activateStand(){
   standAwake = true;
   standTime = 200;   // 时停约 3.3 秒
@@ -862,11 +862,6 @@ cv.addEventListener("mousedown",e=>{
     if(domainActive&&skillE<=0)castSkill("2");
     else if(shieldCd<=0&&shieldTime>0)defending=true;
   }
-  // 白金之星彩蛋：BOSS 战屏幕顶角按三次右键觉醒
-  if (e.button===2 && bossFight && e.clientY < 120){
-    standCount++;
-    if (standCount >= 3 && !standAwake){ activateStand(); standCount = 0; }
-  }
 });
 addEventListener("mouseup",e=>{ if(e.button===2)defending=false; });
 addEventListener("contextmenu",e=>e.preventDefault());
@@ -986,7 +981,7 @@ function startGame(){
   boss=null; bossMap=false; bossFight=false; bossStarted=false; victory=false;
   cgActive=false; cgT=0; damageZones=[];
   talk=null; talk3=false; talk6=false;
-  standAwake=false; standTime=0; standCount=0;
+  standAwake=false; standTime=0; standCount=0; oHold=0;
   const [sx,sy]=findSpawn();
   player.x=sx;player.y=sy;player.vx=0;player.vy=0;
   player.hp=120;player.maxHp=120;player.atk=12;player.spd=2.8;
@@ -1172,6 +1167,16 @@ function update(dt){
   // 咒力粒子 + 领域粒子
   if(Math.random()<0.25&&running){
     parts.push({x:player.x+(Math.random()-.5)*24,y:player.y+12,vx:(Math.random()-.5)*0.3,vy:-0.6-Math.random()*0.5,life:28+Math.random()*18,max:50,color:Math.random()<.6?"#8e44ad":"#d62828"});
+  }
+  // 白金之星：按住 O 键 5 秒觉醒（时停）
+  if (keys["KeyO"] && !over && running){
+    oHold += dt*60;
+    if (oHold >= 300 && !standAwake){
+      activateStand();
+      oHold = 0;
+    }
+  } else {
+    oHold = 0;
   }
   // BOSS 战
   if (bossFight) updateBoss(dt);
@@ -1372,6 +1377,15 @@ function render(t){
   const p=player;
   ctx.save();
   if(p.hitT>0)ctx.globalAlpha=0.45;
+  // 白金之星蓄力提示（按住 O 键，蓝光逐渐增强）
+  if (keys["KeyO"] && oHold > 0 && !standAwake){
+    const prog = Math.min(1, oHold/300);
+    ctx.fillStyle = `rgba(79,195,255,${0.1+0.2*prog})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 30+20*prog, 0, 6.28); ctx.fill();
+    ctx.strokeStyle = `rgba(79,195,255,${0.5+0.4*prog})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 30+20*prog, 0, 6.28); ctx.stroke();
+  }
   // 白金之星替身光晕（时停中）
   if (standAwake){
     ctx.fillStyle = "rgba(79,195,255,0.28)";
