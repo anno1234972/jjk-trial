@@ -1095,6 +1095,19 @@ function update(dt){
   // 弹丸
   for(let i=projectiles.length-1;i>=0;i--){
     const pr=projectiles[i];
+    // 追踪弹
+    if (pr.homing){
+      const ha = Math.atan2(player.y-pr.y, player.x-pr.x);
+      pr.vx += (Math.cos(ha)*3.2 - pr.vx)*0.05;
+      pr.vy += (Math.sin(ha)*3.2 - pr.vy)*0.05;
+    }
+    // 分裂弹
+    if (pr.split && pr.splitDone!==true && pr.life<140){
+      pr.splitDone = true;
+      for (let k=-1;k<=1;k+=2){
+        projectiles.push({x:pr.x,y:pr.y,vx:Math.cos(pr.a+k*0.45)*4,vy:Math.sin(pr.a+k*0.45)*4,dmg:6,life:110});
+      }
+    }
     pr.x+=pr.vx;pr.y+=pr.vy;pr.life--;
     if(solid(tileAt(pr.x,pr.y))||pr.life<=0){projectiles.splice(i,1);continue;}
     if(Math.hypot(pr.x-player.x,pr.y-player.y)<player.r+4){
@@ -1665,7 +1678,8 @@ function enterBossMap(){
   player.x = MW*TS/2; player.y = MH*TS/2; player.vx = 0; player.vy = 0;
   const sc = 1 + player.lv*0.08;
   const mh = Math.round(10000 + player.lv*300);   // ≈一百管血（一管=120HP）
-  boss = { x: MW*TS/2+260, y: MH*TS/2, hp: mh, maxHp: mh, phase:1, cd:90, state:"idle", stateT:0, flash:0, dir:0, warn:0 };
+  boss = { x: MW*TS/2+260, y: MH*TS/2, hp: mh, maxHp: mh, phase:1, cd:90, state:"idle", stateT:0, flash:0, dir:0, warn:0,
+    combo:null, comboIdx:0, dashVx:0, dashVy:0, dashT:0, laser:null, autoT:0, touchCd:0 };
   bossFight = true;
   damageZones = [];
   speak("始めよう。");
@@ -1760,6 +1774,67 @@ function spiralBarrage(){
   }
   sfx("shoot");
 }
+/* BOSS 连招表（按阶段） */
+const COMBOS = {
+  1: [["fire","ring","rapid"], ["dash","sweep","cleave"], ["spiral","homing","fire"]],
+  2: [["dash","combo","cleave","sweep"], ["fire","rapid","ring","spiral"], ["flame","summon","homing","rapid"]],
+  3: [["flame","laser","rapid","ring"], ["dash","combo","split","spiral"], ["summon","laser","slash","finisher"]]
+};
+const COMBO_NAMES = ["弾幕の嵐！", "死の舞踏！", "終焉の連撃！", "呪力全開！"];
+function dashAttack(){
+  // 冲刺突进：快速位移 + 沿途伤害
+  const ang = Math.atan2(player.y-boss.y, player.x-boss.x);
+  const dist = Math.hypot(player.x-boss.x, player.y-boss.y);
+  const steps = Math.min(64, dist/3);
+  boss.dashVx = Math.cos(ang)*steps;
+  boss.dashVy = Math.sin(ang)*steps;
+  boss.dashT = 12;
+  burst(boss.x, boss.y, "#d62828", 18, 3.5);
+  sfx("boom");
+}
+function homingShot(){
+  // 追踪弹
+  const a = Math.atan2(player.y-boss.y, player.x-boss.x);
+  projectiles.push({x:boss.x,y:boss.y,vx:Math.cos(a)*3,vy:Math.sin(a)*3,dmg:7,life:300,homing:true});
+  sfx("shoot");
+}
+function splitShot(){
+  // 分裂弹（中途一分为三）
+  const a = Math.atan2(player.y-boss.y, player.x-boss.x);
+  projectiles.push({x:boss.x,y:boss.y,vx:Math.cos(a)*4.2,vy:Math.sin(a)*4.2,dmg:6,life:200,a:a,split:true});
+  sfx("shoot");
+}
+function laserAttack(){
+  // 咒力激光：警告 → 扫射
+  boss.laser = { a: Math.atan2(player.y-boss.y, player.x-boss.x), warn: 28, t: 46 };
+  speak("呪力光線！");
+  bigSubtitle("呪力光線", "—— 注意回避 ——");
+}
+/* 连招推进 */
+function nextCombo(b){
+  if (b.combo){
+    b.comboIdx++;
+    if (b.comboIdx >= b.combo.length){
+      b.combo = null;
+      b.cd = 150;   // 连招结束：疲惫硬直（玩家输出窗口）
+      b.state = "idle";
+    } else {
+      b.state = b.combo[b.comboIdx];
+      b.stateT = 0;
+      b.cd = 18;    // 连招间隔极短（压迫感）
+    }
+  }
+}
+function startCombo(b){
+  const list = COMBOS[b.phase];
+  const pick = list[Math.floor(Math.random()*list.length)];
+  b.combo = pick.slice();
+  b.comboIdx = 0;
+  b.state = b.combo[0];
+  b.stateT = 0;
+  b.cd = 22;
+  bigSubtitle(COMBO_NAMES[Math.floor(Math.random()*COMBO_NAMES.length)], "—— 連続攻撃 ——");
+}
 function rapidFire(){
   // 五波扇形连射（弹幕墙）
   for (let w=0; w<5; w++){
@@ -1838,43 +1913,78 @@ function updateBoss(dt){
   // 迅速逼近（更主动）
   const spd = [0.75, 1.1, 1.45][b.phase-1];
   moveEnemy(b, Math.cos(b.dir)*spd*dt*60, Math.sin(b.dir)*spd*dt*60);
-  // 技能执行（前摇大幅缩短，出手迅速）
-  if (b.state==="sweep" && b.stateT===8) sweepAttack();
-  if (b.state==="fire" && b.stateT===8) fireBall();
+  // 技能执行（含连招推进）
+  if (b.state==="sweep" && b.stateT===8){ sweepAttack(); nextCombo(b); }
+  if (b.state==="fire" && b.stateT===8){ fireBall(); nextCombo(b); }
   if (b.state==="combo" && b.stateT>=6 && (b.stateT-6)%36===0 && b.stateT<160) sweepAttack();
-  if (b.state==="flame" && b.stateT===10) createFlameZone();
-  if (b.state==="cleave" && b.stateT===8) cleaveAttack();
-  if (b.state==="ring" && b.stateT===6) ringBarrage();
-  if (b.state==="spiral" && b.stateT===6) spiralBarrage();
-  if (b.state==="rapid" && b.stateT===6) rapidFire();
-  if (b.state==="slash" && b.stateT===10) slashAttack();
+  if (b.state==="combo" && b.stateT>=160) nextCombo(b);
+  if (b.state==="flame" && b.stateT===10){ createFlameZone(); nextCombo(b); }
+  if (b.state==="cleave" && b.stateT===8){ cleaveAttack(); nextCombo(b); }
+  if (b.state==="ring" && b.stateT===6){ ringBarrage(); nextCombo(b); }
+  if (b.state==="spiral" && b.stateT===6){ spiralBarrage(); nextCombo(b); }
+  if (b.state==="rapid" && b.stateT===6){ rapidFire(); nextCombo(b); }
+  if (b.state==="slash" && b.stateT===10){ slashAttack(); nextCombo(b); }
+  if (b.state==="dash" && b.stateT===6){ dashAttack(); nextCombo(b); }
+  if (b.state==="homing" && b.stateT===8){ homingShot(); nextCombo(b); }
+  if (b.state==="split" && b.stateT===8){ splitShot(); nextCombo(b); }
+  if (b.state==="laser" && b.stateT===10){ laserAttack(); nextCombo(b); }
+  if (b.state==="summon" && b.stateT===10){ summonMinions(); nextCombo(b); }
   if (b.state==="finisher" && b.warn>0){ b.warn--; if (b.warn===0){ if (!domainActive) hitPlayer(34 + player.lv*2); shake=18; sfx("boom"); } }
-  // 疯狂技能池（CD 大幅缩短，攻击不断）
+  // 冲刺位移
+  if (b.dashT>0){
+    b.dashT--;
+    moveEnemy(b, b.dashVx/12, b.dashVy/12);
+    burst(b.x, b.y, "#d62828", 2, 1.5);
+    if (Math.hypot(player.x-b.x, player.y-b.y) < 62) hitPlayer(10 + Math.floor(player.lv*0.6));
+  }
+  // 激光处理
+  if (b.laser){
+    if (b.laser.warn>0){ b.laser.warn--; }
+    else {
+      b.laser.t--;
+      const ang = b.laser.a;
+      const proj = (player.x-b.x)*Math.cos(ang) + (player.y-b.y)*Math.sin(ang);
+      const perp = Math.abs(-(player.x-b.x)*Math.sin(ang) + (player.y-b.y)*Math.cos(ang));
+      if (proj>0 && perp<26) hitPlayer(0.6);
+      if (b.laser.t<=0) b.laser = null;
+    }
+  }
+  // 技能选择：连招 or 单技能
   if (b.cd<=0){
-    const r = Math.random();
     b.stateT = 0;
-    if (b.phase===1){
-      if (r<0.25){ b.state="sweep"; b.cd=55; }
-      else if (r<0.5){ b.state="fire"; b.cd=38; }
-      else if (r<0.72){ b.state="cleave"; b.cd=60; }
-      else if (r<0.88){ b.state="ring"; b.cd=80; }
-      else { b.state="spiral"; b.cd=72; }
-    } else if (b.phase===2){
-      if (r<0.2){ b.state="combo"; b.cd=100; }
-      else if (r<0.36){ b.state="fire"; b.cd=36; }
-      else if (r<0.5){ b.state="flame"; b.cd=80; }
-      else if (r<0.64){ b.state="cleave"; b.cd=55; }
-      else if (r<0.76){ b.state="ring"; b.cd=65; }
-      else if (r<0.88){ b.state="rapid"; b.cd=70; }
-      else { b.state="idle"; summonMinions(); b.cd=120; }
-    } else {
-      if (r<0.16){ b.state="slash"; b.cd=65; }
-      else if (r<0.3){ b.state="cleave"; b.cd=50; }
-      else if (r<0.44){ b.state="flame"; b.cd=70; }
-      else if (r<0.58){ b.state="ring"; b.cd=52; }
-      else if (r<0.72){ b.state="rapid"; b.cd=58; }
-      else if (r<0.86){ b.state="spiral"; b.cd=50; }
-      else { b.state="finisher"; b.cd=170; }
+    const r = Math.random();
+    if (r < 0.45){ startCombo(b); }
+    else {
+      if (b.phase===1){
+        const r2 = Math.random();
+        if (r2<0.25){ b.state="sweep"; b.cd=55; }
+        else if (r2<0.45){ b.state="fire"; b.cd=38; }
+        else if (r2<0.62){ b.state="cleave"; b.cd=58; }
+        else if (r2<0.76){ b.state="ring"; b.cd=78; }
+        else if (r2<0.88){ b.state="homing"; b.cd=70; }
+        else { b.state="spiral"; b.cd=72; }
+      } else if (b.phase===2){
+        const r2 = Math.random();
+        if (r2<0.18){ b.state="dash"; b.cd=85; }
+        else if (r2<0.32){ b.state="fire"; b.cd=36; }
+        else if (r2<0.45){ b.state="flame"; b.cd=78; }
+        else if (r2<0.56){ b.state="cleave"; b.cd=52; }
+        else if (r2<0.66){ b.state="ring"; b.cd=62; }
+        else if (r2<0.76){ b.state="split"; b.cd=80; }
+        else if (r2<0.88){ b.state="homing"; b.cd=60; }
+        else { b.state="idle"; summonMinions(); b.cd=120; }
+      } else {
+        const r2 = Math.random();
+        if (r2<0.14){ b.state="dash"; b.cd=75; }
+        else if (r2<0.26){ b.state="laser"; b.cd=110; }
+        else if (r2<0.38){ b.state="cleave"; b.cd=48; }
+        else if (r2<0.5){ b.state="flame"; b.cd=68; }
+        else if (r2<0.6){ b.state="ring"; b.cd=50; }
+        else if (r2<0.7){ b.state="split"; b.cd=70; }
+        else if (r2<0.8){ b.state="slash"; b.cd=65; }
+        else if (r2<0.9){ b.state="homing"; b.cd=55; }
+        else { b.state="finisher"; b.cd=170; }
+      }
     }
   }
   // 阶段2 起：宿傩领域常驻（玩家领域对拼抵消持续伤害）+ 疯狂自动散射
@@ -2058,6 +2168,25 @@ function drawBoss(t){
   if (b.warn>0){
     ctx.fillStyle = `rgba(255,217,61,${0.3+0.3*Math.sin(t*30)})`;
     ctx.fillRect(-64, -64, 128, 128);
+  }
+  // 咒力激光（警告黄线 → 红色扫射）
+  if (b.laser){
+    ctx.save();
+    ctx.rotate(b.laser.a);
+    if (b.laser.warn>0){
+      const wl = 0.4+0.4*Math.sin(t*30);
+      ctx.strokeStyle = `rgba(255,217,61,${wl})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(20,0); ctx.lineTo(760,0); ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(214,40,40,0.85)";
+      ctx.lineWidth = 26;
+      ctx.beginPath(); ctx.moveTo(20,0); ctx.lineTo(760,0); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,0.7)";
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(20,0); ctx.lineTo(760,0); ctx.stroke();
+    }
+    ctx.restore();
   }
   ctx.restore();
 }
