@@ -280,7 +280,8 @@ const PAL = {
   P:"#2a3a5a", B:"#161b2e", W:"#ffffff", A:"#8e44ad", R:"#d62828", K:"#1c1c2a",
   L:"#ffd93d", G:"#d8d8ea", V:"#0b0b14", G2:"#f4f4ff", A2:"#a569d8", A3:"#4a1f6e",
   R2:"#f05555", R3:"#7a1515", C:"#7cd4ff",
-  P:"#4fc3ff", p:"#2f7fd0", H2:"#1a4a8a", F:"#e8f6ff"
+  P:"#4fc3ff", p:"#2f7fd0", H2:"#1a4a8a", F:"#e8f6ff",
+  O:"#ff9f43", T:"#6b5a9e"
 };
 /* 白金之星替身（16×22，两帧：待机/出拳） */
 const STAND_IDLE = [
@@ -373,7 +374,62 @@ const P_DOMAIN = [
   "...BBB......BBB...",
   "..BBBB......BBBB.."
 ];
-/* 咒灵基础帧 */
+/* 自爆怪（橙红圆胖 + 引信） */
+const E_BOMBER = [
+  "......OOOO......",
+  ".....OOOOOO.....",
+  "....OOOOOOOO....",
+  "...OOKOOOOOOO...",
+  "..OOOOOOOOOOKO..",
+  "..OOOOOOOOOOOO..",
+  ".OOWOOOOOOOOO...",
+  ".OOOOOOOOOOOOO..",
+  ".OOOOOOOOOOOOOO.",
+  "..OOOOOOOOOOO...",
+  "...OOOOOOOOOO...",
+  "....OOOOOOOO....",
+  ".....OO....OO...",
+  "....OOO....OOO..",
+  "....OOO....OOO..",
+  "...OOOO....OOOO."
+];
+/* 坦克怪（深紫魁梧 + 角） */
+const E_TANK = [
+  "......H2H2......",
+  "....H2H2H2H2....",
+  "...H2TTTTTTTH2..",
+  "..HTTTTTTTTTTH..",
+  "..TTTTWWWWTTTT..",
+  "..TTTTWWWWTTTT..",
+  "..TTTTTTTTTTTT..",
+  ".TTTTTTTTTTTTTT.",
+  ".TTTTTTTTTTTTTT.",
+  ".TTTKKKKKKKKTTT.",
+  "..TTTTTTTTTTTT..",
+  "..TTT......TTT..",
+  "..TTT......TTT..",
+  ".TTTT......TTTT.",
+  ".TTTT......TTTT."
+];
+/* 分裂怪（青色 + 分裂线） */
+const E_SPLIT = [
+  "......CCCC......",
+  ".....CCCCCC.....",
+  "....CCCCCCCC....",
+  "...CCCCCCCCCC...",
+  "..CCCCWWCCWWCC..",
+  "..CCCCCCCCCCCC..",
+  "..CCCCCCCCCCCC..",
+  "...CCCCCCCCCC...",
+  "....CCCCCCCC....",
+  "....CC..CC..CC..",
+  "...CC....CC.....",
+  "..CC......CC....",
+  "..CC......CC....",
+  ".CC........CC...",
+  ".CC........CC...",
+  "CC..........CC.."
+];
 const E_BASE = [
   "......A3A3......",
   ".....AA2A2A.....",
@@ -458,7 +514,12 @@ function buildPlayerFrames(){
   return frames;
 }
 function buildEnemyFrames(type){
-  const base = type==="bot" ? E_BASE : E_BASE_R;
+  let base;
+  if (type==="bot") base = E_BASE;
+  else if (type==="hound") base = E_BASE_R;
+  else if (type==="bomber") base = E_BOMBER;
+  else if (type==="tank") base = E_TANK;
+  else base = E_SPLIT;
   const frames = { idle:[], walk:[], attack:[], hurt:[] };
   frames.idle.push(base.slice());
   const w1 = shiftRows(base, 10, 1);
@@ -535,8 +596,11 @@ let pCur = pAnim.idle;
 /* ================= 敌人 ================= */
 let enemies = [];
 const ENEMY_TYPES = {
-  bot:   {kind:"melee",  hp:30, spd:0.9, dmg:7,  exp:12, gold:5, r:15, color:"#8e44ad"},
-  hound: {kind:"ranged", hp:15, spd:1.2, dmg:5,  exp:10, gold:3, r:14, color:"#d62828"}
+  bot:   {kind:"melee",  hp:30, spd:0.9,  dmg:7,  exp:12, gold:5, r:15, color:"#8e44ad"},
+  hound: {kind:"ranged", hp:15, spd:1.2,  dmg:5,  exp:10, gold:3, r:14, color:"#d62828"},
+  bomber:{kind:"bomber", hp:12, spd:2.2,  dmg:0,  exp:14, gold:6, r:14, color:"#ff9f43"},
+  tank:  {kind:"melee",  hp:70, spd:0.55, dmg:16, exp:22, gold:10,r:17, color:"#6b5a9e"},
+  split: {kind:"melee",  hp:20, spd:1.3,  dmg:6,  exp:12, gold:5, r:14, color:"#2ee6a8"}
 };
 function spawnEnemy(type){
   let x,y,guard=0;
@@ -565,6 +629,12 @@ function killEnemy(e){
   const t2 = ENEMY_TYPES[e.type];
   player.kills++;
   burst(e.x,e.y,t2.color,22,3.5);
+  // 分裂怪：死亡裂成 2 只小咒灵
+  if (e.type==="split"){
+    spawnEnemy("bot");
+    spawnEnemy("bot");
+    speak("分裂した！");
+  }
   drop(e.x+10, e.y, t2.gold+Math.floor(Math.random()*4), "gold");
   drop(e.x-10, e.y, t2.exp, "exp");
   if (Math.random()<0.32) drop(e.x, e.y+12, 20, "heart");
@@ -1036,7 +1106,10 @@ function startGame(){
   player.curse=100;player.maxCurse=100;
   player.lv=1;player.exp=0;player.expNeed=30;player.gold=0;player.kills=0;
   player.hpShow=120;player.goldShow=0;
-  for(let i=0;i<12;i++)spawnEnemy(i<7?"bot":"hound");
+  for(let i=0;i<14;i++){
+    const r = Math.random();
+    spawnEnemy(r<0.3?"bot":r<0.55?"hound":r<0.75?"bomber":r<0.9?"split":"tank");
+  }
   genChests();
   startTime=performance.now();
   running=true;over=false;
@@ -1156,6 +1229,27 @@ function update(dt){
       if(e.cd>0){e.cd-=dt*60; if(e.cd<=18&&e.cd>0&&e.warn<=0)e.warn=16;}
       if(e.warn>0)e.warn-=dt*60;
       if(dist<24+e.r&&e.cd<=0&&e.warn<=0){e.cd=55;hitPlayer(e.dmg);}
+    } else if(t.kind==="bomber"){
+      // 自爆怪：高速冲向玩家，近身自爆
+      if(dist<280){
+        const ang=Math.atan2(dy,dx);
+        moveEnemy(e,Math.cos(ang)*t.spd*dt*60,Math.sin(ang)*t.spd*dt*60);
+      } else {
+        e.wanderT-=dt*60;
+        if(e.wanderT<=0){e.wanderT=60+Math.random()*90;e.dir=Math.random()*6.28;}
+        moveEnemy(e,Math.cos(e.dir)*0.5*dt*60,Math.sin(e.dir)*0.5*dt*60);
+      }
+      // 自爆预警：靠近时身体闪烁
+      if(dist<70 && Math.random()<0.5) burst(e.x,e.y,"#ff9f43",2,1);
+      if(dist<32){
+        // 自爆：范围伤害 + 自毁
+        hitPlayer(20);
+        burst(e.x,e.y,"#ff9f43",26,5);
+        burst(e.x,e.y,"#ffd93d",12,3);
+        shake=10;
+        sfx("boom");
+        e.hp=0;
+      }
     } else {
       const ang=Math.atan2(dy,dx);
       if(dist>175)moveEnemy(e,Math.cos(ang)*t.spd*dt*60,Math.sin(ang)*t.spd*dt*60);
@@ -2012,7 +2106,7 @@ function finisher(){
   bigSubtitle("灭杀斩", "—— 滅殺斬 ——");
 }
 function summonMinions(){
-  for (let i=0;i<2;i++) spawnEnemy("hound");
+  for (let i=0;i<2;i++) spawnEnemy(Math.random()<0.5?"hound":"bomber");
   speak("雑魚ども、出て来い！");
 }
 function updateBoss(dt){
@@ -2345,7 +2439,10 @@ function loop(now){
 genMap();
 const [sx,sy]=findSpawn();
 player.x=sx;player.y=sy;
-for(let i=0;i<12;i++)spawnEnemy(i<7?"bot":"hound");
+for(let i=0;i<14;i++){
+  const r = Math.random();
+  spawnEnemy(r<0.3?"bot":r<0.55?"hound":r<0.75?"bomber":r<0.9?"split":"tank");
+}
 genChests();
 requestAnimationFrame(loop);
 </script>
