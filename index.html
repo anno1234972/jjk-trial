@@ -279,8 +279,54 @@ const PAL = {
   ".":null, H:"#2a1140", S:"#ffd9c0", E:"#8e44ad", J:"#d62828", D:"#c21e66",
   P:"#2a3a5a", B:"#161b2e", W:"#ffffff", A:"#8e44ad", R:"#d62828", K:"#1c1c2a",
   L:"#ffd93d", G:"#d8d8ea", V:"#0b0b14", G2:"#f4f4ff", A2:"#a569d8", A3:"#4a1f6e",
-  R2:"#f05555", R3:"#7a1515", C:"#7cd4ff"
+  R2:"#f05555", R3:"#7a1515", C:"#7cd4ff",
+  P:"#4fc3ff", p:"#2f7fd0", H2:"#1a4a8a", F:"#e8f6ff"
 };
+/* 白金之星替身（16×22，两帧：待机/出拳） */
+const STAND_IDLE = [
+  "......HHHH......",
+  ".....HHHHHH.....",
+  "....HHHHHHHH....",
+  "....PPPPPPPP....",
+  "...PPFPPPPPPP...",
+  "...PPFPPPPPPP...",
+  "...PPPPPPPPPP...",
+  "...PPKKKKPPPP...",
+  "...PPPKKKPPPP...",
+  "....PPPPPPPP....",
+  "...PPPPPPPPPP...",
+  "..PPPPPPPPPPPP..",
+  "..PPWWPPPPWWPP..",
+  "..PPPPPPPPPPPP..",
+  "...PPP....PPP...",
+  "...PP......PP...",
+  "...PP......PP...",
+  "..PPP......PPP..",
+  "..PPP......PPP..",
+  ".PPPP......PPPP."
+];
+const STAND_PUNCH = [
+  "......HHHH......",
+  ".....HHHHHH.....",
+  "....HHHHHHHH....",
+  "....PPPPPPPP....",
+  "...PPFPPPPPPP...",
+  "...PPFPPPPPPP...",
+  "...PPPPPPPPPP...",
+  "...PPKKKKPPPP...",
+  "...PPPKKKPPPP...",
+  "....PPPPPPPP....",
+  "...PPPPPPPPPP...",
+  "..PPPPPPPPPPPP..",
+  "..PPWWPPPPWWPP..",
+  "..PPPPPPPPPPPP..",
+  "..PPP....PPPPP..",
+  "..PP.....PPPPP..",
+  "..PP......PPP...",
+  "..PPP......PPP..",
+  "..PPP......PPP..",
+  ".PPPP......PPPP."
+];
 /* 五条悟基础帧（20×20） */
 const P_BASE = [
   ".......GGGG.......",
@@ -474,6 +520,8 @@ const player = {
 };
 const pFrames = buildPlayerFrames();
 const pSheet = makeSheet(pFrames.idle.concat(pFrames.walk, pFrames.attack, pFrames.hurt, pFrames.domain), 2);
+/* 白金之星替身 sheet（待机 + 出拳） */
+const standSheet = makeSheet([STAND_IDLE, STAND_PUNCH], 2);
 const P_IDX = { idle:[0,1], walk:[2,3,4,5], attack:[6,7], hurt:[8], domain:[9] };
 const pAnim = {
   idle:  new Anim(pSheet, "idle",  P_IDX.idle,  3),
@@ -1386,17 +1434,26 @@ function render(t){
     ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(p.x, p.y, 30+20*prog, 0, 6.28); ctx.stroke();
   }
+  // 白金之星替身（角色左上角：蓄力浮现，觉醒实体化）
+  if (standAwake || (keys["KeyO"] && oHold>0)){
+    const alpha = standAwake ? 1 : (0.25 + 0.55*Math.min(1, oHold/300));
+    const frame = standAwake ? 1 : 0;   // 觉醒时出拳姿态
+    const fx = p.x - 40;
+    const fy = p.y - 46 + Math.sin(t*3)*3;   // 浮动动画
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // 替身蓝光底座
+    ctx.fillStyle = "rgba(79,195,255,0.15)";
+    ctx.beginPath(); ctx.arc(fx+16, fy+22, 26, 0, 6.28); ctx.fill();
+    drawFrame(standSheet, frame, Math.round(fx), Math.round(fy), Math.cos(p.dir)<0, 2);
+    ctx.restore();
+  }
   // 白金之星替身光晕（时停中）
   if (standAwake){
-    ctx.fillStyle = "rgba(79,195,255,0.28)";
+    ctx.fillStyle = "rgba(79,195,255,0.25)";
     ctx.beginPath(); ctx.arc(p.x, p.y, 48, 0, 6.28); ctx.fill();
     ctx.strokeStyle = "rgba(79,195,255,0.85)"; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(p.x, p.y, 48, 0, 6.28); ctx.stroke();
-    for (let i=0;i<4;i++){
-      const ba = t*6 + i*1.57;
-      ctx.fillStyle = "rgba(160,220,255,0.7)";
-      ctx.beginPath(); ctx.arc(p.x+Math.cos(ba)*34, p.y+Math.sin(ba)*34, 6, 0, 6.28); ctx.fill();
-    }
   }
   if(defending){
     const pulse=0.55+0.25*Math.sin(t*8);
